@@ -10,6 +10,8 @@
 #define OSSet_h
 
 #include "Locker.h"
+#include <stdio.h>
+using namespace std;
 
 template <class Elem>
 class OSSet {
@@ -17,21 +19,35 @@ class OSSet {
     public:
         Elem data;
         Node *next;
-        Locker * locker;
+        int key;
+        pthread_mutex_t mutex;
         
-        Node() {
-            locker = new Locker();
+        Node(const Elem &item) {
+            data = item;
+            key = (int)hash<Elem>()(item);
+            next = NULL;
+            mutex = PTHREAD_MUTEX_INITIALIZER;
         }
         
-        ~Node() {
-            delete locker;
+        Node(int _key, void *param) {
+            key = _key;
+        }
+        
+        void lock() {
+            pthread_mutex_lock(&mutex);
+        }
+        
+        void unlock() {
+            pthread_mutex_unlock(&mutex);
         }
     };
     Node *head = NULL;
     
 public:
     OSSet() {
-        head = NULL;
+        head = new Node(INT_MIN, NULL);
+        head->next = new Node(INT_MAX, NULL);
+        head->next->next = NULL;
     }
     
     OSSet(const CGSet<Elem> *anotherSet) {
@@ -48,77 +64,88 @@ public:
     }
     
     bool add(const Elem &item) {
-        Node *iter = head;
-        while (iter != NULL) {
-            if (iter->data == item) {
-                return false;
+        int key = (int)hash<Elem>()(item);
+        while (true) {
+            Node *pred = head;
+            Node *curr = pred->next;
+            while (curr->key <= key) {
+                pred = curr;
+                curr = curr->next;
             }
-            iter = iter->next;
+            pred->lock();
+            curr->lock();
+            if (validate(pred, curr)){
+                if (curr->key == key) {
+                    pred->unlock();
+                    curr->unlock();
+                    return false;
+                } else {
+                    Node *node = new Node(item);
+                    node->next = curr;
+                    pred->next = node;
+                    pred->unlock();
+                    curr->unlock();
+                    return true;
+                }
+            }
         }
-        
-        Node *oldHead = head;
-        if(oldHead != NULL) {
-            oldHead->locker->lock();
-        }
-        head = new Node();
-        head->locker->lock();
-        
-        head->data = item;
-        head->next = oldHead;
-        
-        head->locker->unlock();
-        if (oldHead != NULL) {
-            oldHead->locker->unlock();
-        }
-        return true;
     }
     
     bool remove(const Elem &item) {
-        if (head == NULL) {
-            return false;
-        }
-        Node *iter = head, *prev = NULL;
-        while(iter != NULL && iter->data != item) {
-            prev = iter;
-            iter = iter->next;
-        }
-        if (iter == NULL ) {
-            return false;
-        }
-        if (prev == NULL){
-            Node *tmp = head;
-            Node *head_next = head->next;
-            
-            tmp->locker->lock();
-            if (head_next != NULL) {
-                head_next->locker->lock();
+        int key = (int)hash<Elem>()(item);
+        while (true) {
+            Node* pred = head;
+            Node* curr = pred->next;
+            while (curr->key < key) {
+                pred = curr;
+                curr = curr->next;
             }
-            
-            head = head_next;
-            delete tmp;
-            if (head_next != NULL) {
-                head_next->locker->unlock();
+            pred->lock();
+            curr->lock();
+            if (validate(pred, curr)){
+                if (curr->key == key) {
+                    pred->next = curr->next;
+                    delete curr;
+                    pred->unlock();
+                    curr->unlock();
+                    return true;
+                } else {
+                    pred->unlock();
+                    curr->unlock();
+                    return false;
+                }
             }
-            return true;
         }
-        prev->locker->lock();
-        iter->locker->lock();
-        
-        prev->next = iter->next;
-        delete iter;
-        
-        prev->locker->unlock();
-        return true;
     }
     
     
     bool contains(const Elem &item) {
-        Node *iter  = head;
-        while (iter != NULL) {
-            if (iter->data == item) {
-                return true;
+        int key = (int)hash<Elem>()(item);
+        while (true) {
+            Node *pred = head;
+            Node *curr = pred->next;
+            while (curr->key < key) {
+                pred = curr;
+                curr = curr->next;
             }
-            iter = iter->next;
+            pred->lock();
+            curr->lock();
+            if (validate(pred, curr)) {
+                bool res = (curr->key == key);
+                pred->unlock();
+                curr->unlock();
+                return res;
+            }
+        }
+    }
+    
+    bool validate(Node *pred, Node *curr) {
+        Node *node = head;
+        while (node->key <= pred->key) {
+            if (node == pred){
+                return (pred->next == curr);
+            }
+            node = node->next;
         }
         return false;
     }

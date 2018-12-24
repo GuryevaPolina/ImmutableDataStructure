@@ -11,21 +11,36 @@
 
 #include <stdio.h>
 #include "Locker.h"
+using namespace std;
 
 template <class Elem>
 class CGSet {
     class Node {
     public:
         Elem data;
+        int key;
         Node *next;
+        
+        Node(const Elem &item) {
+            data = item;
+            key = (int)hash<Elem>()(item);
+            next = NULL;
+        }
+        
+        Node(int _key, void *param){
+            key = _key;
+        }
+        
     };
     Node *head;
-    Locker *locker;
+    pthread_mutex_t mutex;
     
 public:
     CGSet() {
-        head = NULL;
-        locker = new Locker();
+        head = new Node(INT_MIN, NULL);
+        head->next = new Node(INT_MAX, NULL);
+        head->next->next = NULL;
+        mutex = PTHREAD_MUTEX_INITIALIZER;
     }
     
     CGSet(const CGSet<Elem> *anotherSet) {
@@ -39,70 +54,66 @@ public:
             iter = iter->next;
             delete tmp;
         }
-        delete locker;
     }
     
     bool add(const Elem &item) {
-        locker->lock();
-        Node *iter = head;
-        while (iter != NULL) {
-            if (iter->data == item) {
-                locker->unlock();
-                return false;
-            }
-            iter = iter->next;
-        }
+        Node *pred, *curr;
+        int key = (int)hash<Elem>()(item);
+        lock();
         
-        Node *oldHead = head;
-        head = new Node();
-        head->data = item;
-        head->next = oldHead;
-        locker->unlock();
-        return true;
+        pred = head;
+        curr = pred->next;
+        while(curr->key < key){
+            pred = curr;
+            curr = curr->next;
+        }
+        if(curr->key == key){
+            unlock();
+            return false;
+        } else {
+            Node *node = new Node(item);
+            node->next = curr;
+            pred->next = node;
+            unlock();
+            return true;
+        }
     }
     
     bool remove(const Elem &item) {
-        locker->lock();
-        if (head == NULL) {
-            locker->unlock();
-            return false;
-        }
+        Node *pred, *curr;
+        int key = (int)hash<Elem>()(item);
+        lock();
         
-        Node *iter = head, *prev = NULL;
-        while(iter != NULL && iter->data != item) {
-            prev = iter;
-            iter = iter->next;
+        pred = head;
+        curr = pred->next;
+        while (curr->key < key) {
+            pred = curr;
+            curr = curr->next;
         }
-        if (iter == NULL ) {
-            locker->unlock();
+        if (key == curr->key)
+        {
+            pred->next = curr->next;
+            delete curr;
+            unlock();
+            return true;
+        } else {
+            unlock();
             return false;
         }
-        if (prev == NULL){
-            Node *tmp = head;
-            head = head->next;
-            delete tmp;
-            locker->unlock();
-            return true;
-        }
-        prev->next = iter->next;
-        delete iter;
-        locker->unlock();
-        return true;
     }
     
     
     bool contains(const Elem &item) {
-        locker->lock();
-        Node *iter  = head;
-        while (iter != NULL) {
-            if (iter->data == item) {
-                locker->unlock();
-                return true;
-            }
-            iter = iter->next;
+        Node *curr;
+        int key = (int)hash<Elem>()(item);
+        lock();
+        
+        curr = head;
+        while(curr->key < key){
+            curr = curr->next;
         }
-        locker->unlock();
-        return false;
+        unlock();
+        return (curr->key == key);
     }
     
     int count() {
@@ -113,6 +124,14 @@ public:
             iter = iter->next;
         }
         return cnt;
+    }
+    
+    void lock() {
+        pthread_mutex_lock(&mutex);
+    }
+    
+    void unlock() {
+        pthread_mutex_unlock(&mutex);
     }
     
 };
