@@ -9,7 +9,6 @@
 #ifndef OSSet_h
 #define OSSet_h
 
-#include "Locker.h"
 #include <stdio.h>
 using namespace std;
 

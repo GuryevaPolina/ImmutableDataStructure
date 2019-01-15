@@ -10,7 +10,6 @@
 #define CGSet_h
 
 #include <stdio.h>
-#include "Locker.h"
 using namespace std;
 
 template <class Elem>
